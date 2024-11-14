@@ -1,4 +1,4 @@
-module github.com/watzon/0x45-cli/0x45
+module github.com/watzon/0x45-cli
 
 go 1.21
 

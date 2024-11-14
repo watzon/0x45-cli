@@ -40,10 +40,18 @@ A command-line interface for interacting with the [0x45.st](https://0x45.st) fil
 Requires Go 1.18 or later.
 
 ```bash
-go install github.com/watzon/0x45-cli/0x45@latest
+go install github.com/watzon/0x45-cli@latest
 ```
 
 The command will be installed as `0x45` in your `$GOPATH/bin` directory.
+
+Alternatively, you can clone and build from source:
+
+```bash
+git clone https://github.com/watzon/0x45-cli.git
+cd 0x45-cli
+go build -o $GOPATH/bin/0x45 .
+```
 
 ## Configuration
 
