@@ -4,6 +4,24 @@
     <img src="https://raw.githubusercontent.com/watzon/0x45-cli/main/.github/0x45.png" alt="0x45 Logo" />
 </div>
 
+<div align="center">
+    <a href="https://pkg.go.dev/github.com/watzon/0x45-cli">
+        <img src="https://pkg.go.dev/badge/github.com/watzon/0x45-cli.svg" alt="Go Reference">
+    </a>
+    <a href="https://goreportcard.com/report/github.com/watzon/0x45-cli">
+        <img src="https://goreportcard.com/badge/github.com/watzon/0x45-cli" alt="Go Report Card">
+    </a>
+    <a href="https://github.com/watzon/0x45-cli/actions/workflows/test.yml">
+        <img src="https://github.com/watzon/0x45-cli/actions/workflows/test.yml/badge.svg" alt="Test Status">
+    </a>
+    <a href="https://codecov.io/gh/watzon/0x45-cli">
+        <img src="https://codecov.io/gh/watzon/0x45-cli/branch/main/graph/badge.svg" alt="Code Coverage">
+    </a>
+    <a href="https://github.com/watzon/0x45-cli/blob/main/LICENSE">
+        <img src="https://img.shields.io/github/license/watzon/0x45-cli" alt="License">
+    </a>
+</div>
+
 A command-line interface for interacting with the [0x45.st](https://0x45.st) file and URL sharing service.
 
 ## Features
