@@ -1,6 +1,6 @@
-module github.com/watzon/0x45-cli
+module github.com/watzon/0x45-cli/0x45
 
-go 1.23.2
+go 1.21
 
 require (
 	github.com/h2non/filetype v1.1.3
