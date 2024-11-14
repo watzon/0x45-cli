@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dustin/go-humanize"
+	"github.com/h2non/filetype"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -233,11 +234,24 @@ func handleUpload(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading stdin: %w", err)
 		}
 
-		if customFilename == "" {
-			query.Set("filename", "paste.txt")
-		}
-		if customExt == "" {
-			query.Set("ext", "txt")
+		// Try to detect file type from content
+		kind, err := filetype.Match(fileContent)
+		fmt.Printf("Kind: %s, err: %v\n", kind, err)
+		if err == nil && kind != filetype.Unknown {
+			if customFilename == "" {
+				query.Set("filename", fmt.Sprintf("upload.%s", kind.Extension))
+			}
+			if customExt == "" {
+				query.Set("ext", kind.Extension)
+			}
+		} else {
+			// If we can't detect a specific binary format, assume it's text
+			if customFilename == "" {
+				query.Set("filename", "paste.txt")
+			}
+			if customExt == "" {
+				query.Set("ext", "txt")
+			}
 		}
 	}
 

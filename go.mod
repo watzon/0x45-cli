@@ -9,6 +9,7 @@ require (
 	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/go-openapi/strfmt v0.23.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 )
