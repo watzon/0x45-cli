@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,23 +20,50 @@ func NewUploadCmd() *cobra.Command {
 		Use:   "upload [file]",
 		Short: "Upload a file to 0x45.st",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := client.UploadFile(args[0], private, expires)
-			if err != nil {
-				return fmt.Errorf(theme.FormatError("Error uploading file: %v"), err)
-			}
-
-			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatSuccess("File uploaded successfully!"))
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("URL:"), theme.FormatURL(resp.URL))
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Delete URL:"), theme.FormatDeleteURL(resp.DeleteURL))
-			return nil
-		},
+		RunE:  Upload,
 	}
 
 	cmd.Flags().BoolVar(&private, "private", false, "Make the upload private")
 	cmd.Flags().StringVar(&expires, "expires", "", "Set expiration time (e.g. 24h)")
 
 	return cmd
+}
+
+func Upload(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("expected 1 argument, got %d", len(args))
+	}
+
+	filePath := args[0]
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("file does not exist: %s", filePath)
+	}
+
+	private, err := cmd.Flags().GetBool("private")
+	if err != nil {
+		return err
+	}
+
+	expires, err := cmd.Flags().GetString("expires")
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.UploadFile(filePath, private, expires)
+	if err != nil {
+		return fmt.Errorf("error uploading file: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error uploading file: %s", resp.Error)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), resp.URL)
+	if resp.DeleteURL != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), "Delete URL:", resp.DeleteURL)
+	}
+
+	return nil
 }
 
 func NewShortenCmd() *cobra.Command {
@@ -46,23 +74,45 @@ func NewShortenCmd() *cobra.Command {
 		Use:   "shorten [url]",
 		Short: "Shorten a URL using 0x45.st",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := client.ShortenURL(args[0], private, expires)
-			if err != nil {
-				return fmt.Errorf(theme.FormatError("Error shortening URL: %v"), err)
-			}
-
-			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatSuccess("URL shortened successfully!"))
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("URL:"), theme.FormatURL(resp.URL))
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Delete URL:"), theme.FormatDeleteURL(resp.DeleteURL))
-			return nil
-		},
+		RunE:  Shorten,
 	}
 
 	cmd.Flags().BoolVar(&private, "private", false, "Make the URL private")
 	cmd.Flags().StringVar(&expires, "expires", "", "Set expiration time (e.g. 24h)")
 
 	return cmd
+}
+
+func Shorten(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("expected 1 argument, got %d", len(args))
+	}
+
+	private, err := cmd.Flags().GetBool("private")
+	if err != nil {
+		return err
+	}
+
+	expires, err := cmd.Flags().GetString("expires")
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.ShortenURL(args[0], private, expires)
+	if err != nil {
+		return fmt.Errorf("error shortening URL: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error shortening URL: %s", resp.Error)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), resp.URL)
+	if resp.DeleteURL != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), "Delete URL:", resp.DeleteURL)
+	}
+
+	return nil
 }
 
 func NewListCmd() *cobra.Command {
@@ -73,61 +123,86 @@ func NewListCmd() *cobra.Command {
 		Use:   "list [pastes|urls]",
 		Short: "List your pastes or shortened URLs",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			switch args[0] {
-			case "pastes":
-				resp, err := client.ListPastes(page, limit)
-				if err != nil {
-					return fmt.Errorf(theme.FormatError("Error listing pastes: %v"), err)
-				}
-
-				if len(resp.Data.Items) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatWarning("No pastes found"))
-					return nil
-				}
-
-				fmt.Fprintln(cmd.OutOrStdout(), theme.Title.Render("Your Pastes"))
-				for _, item := range resp.Data.Items {
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("ID", item.Id))
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Filename", item.Filename))
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %d bytes\n", theme.ListItemKey.Render("Size:"), item.Size)
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Created", item.CreatedAt))
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("URL:"), theme.FormatURL(item.URL))
-					fmt.Fprintln(cmd.OutOrStdout())
-				}
-
-			case "urls":
-				resp, err := client.ListURLs(page, limit)
-				if err != nil {
-					return fmt.Errorf(theme.FormatError("Error listing URLs: %v"), err)
-				}
-
-				if len(resp.Data.Items) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatWarning("No URLs found"))
-					return nil
-				}
-
-				fmt.Fprintln(cmd.OutOrStdout(), theme.Title.Render("Your Shortened URLs"))
-				for _, item := range resp.Data.Items {
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("ID", item.Id))
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Short URL:"), theme.FormatURL(item.ShortURL))
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Original URL:"), theme.FormatURL(item.OriginalURL))
-					fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Created", item.CreatedAt))
-					fmt.Fprintln(cmd.OutOrStdout())
-				}
-
-			default:
-				return fmt.Errorf("%s", theme.FormatError("Invalid list type. Must be 'pastes' or 'urls'"))
-			}
-
-			return nil
-		},
+		RunE:  List,
 	}
 
 	cmd.Flags().IntVar(&page, "page", 1, "Page number")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Number of items per page")
+	cmd.Flags().IntVar(&limit, "per-page", 10, "Number of items per page")
 
 	return cmd
+}
+
+func List(cmd *cobra.Command, args []string) error {
+	listType := "pastes"
+	if len(args) > 0 {
+		listType = args[0]
+	}
+
+	page, err := cmd.Flags().GetInt("page")
+	if err != nil {
+		return err
+	}
+
+	perPage, err := cmd.Flags().GetInt("per-page")
+	if err != nil {
+		return err
+	}
+
+	switch listType {
+	case "pastes":
+		resp, err := client.ListPastes(page, perPage)
+		if err != nil {
+			return fmt.Errorf("error listing pastes: %w", err)
+		}
+
+		if !resp.Success {
+			return fmt.Errorf("error listing pastes: %s", resp.Error)
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), theme.Title.Render("Your Pastes"))
+		for _, item := range resp.Data.Items {
+			createdAt, err := time.Parse(time.RFC3339, item.CreatedAt)
+			if err != nil {
+				createdAt = time.Time{}
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("ID", item.Id))
+			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Filename", item.Filename))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %d bytes\n", theme.ListItemKey.Render("Size:"), item.Size)
+			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Created", createdAt.Format(time.RFC3339)))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("URL:"), theme.FormatURL(item.URL))
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+
+	case "urls":
+		resp, err := client.ListURLs(page, perPage)
+		if err != nil {
+			return fmt.Errorf("error listing URLs: %w", err)
+		}
+
+		if !resp.Success {
+			return fmt.Errorf("error listing URLs: %s", resp.Error)
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), theme.Title.Render("Your Shortened URLs"))
+		for _, item := range resp.Data.Items {
+			createdAt, err := time.Parse(time.RFC3339, item.CreatedAt)
+			if err != nil {
+				createdAt = time.Time{}
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("ID", item.Id))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Short URL:"), theme.FormatURL(item.ShortURL))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", theme.ListItemKey.Render("Original URL:"), theme.FormatURL(item.OriginalURL))
+			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatKeyValue("Created", createdAt.Format(time.RFC3339)))
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+
+	default:
+		return fmt.Errorf("%s", theme.FormatError("Invalid list type. Must be 'pastes' or 'urls'"))
+	}
+
+	return nil
 }
 
 func NewDeleteCmd() *cobra.Command {
@@ -135,18 +210,28 @@ func NewDeleteCmd() *cobra.Command {
 		Use:   "delete [id]",
 		Short: "Delete a paste or shortened URL",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := client.Delete(args[0])
-			if err != nil {
-				return fmt.Errorf(theme.FormatError("Error deleting content: %v"), err)
-			}
-
-			fmt.Fprintln(cmd.OutOrStdout(), theme.FormatSuccess(resp.Message))
-			return nil
-		},
+		RunE:  Delete,
 	}
 
 	return cmd
+}
+
+func Delete(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("expected 1 argument, got %d", len(args))
+	}
+
+	resp, err := client.Delete(args[0])
+	if err != nil {
+		return fmt.Errorf("error deleting content: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error deleting content: %s", resp.Error)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), resp.Message)
+	return nil
 }
 
 func NewConfigCmd() *cobra.Command {

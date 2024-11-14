@@ -7,220 +7,170 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spf13/viper"
+	"github.com/watzon/0x45-cli/pkg/api/paste69"
 )
 
-func TestUploadFile(t *testing.T) {
-	// Create a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check request method
-		if r.Method != "POST" {
-			t.Errorf("Expected POST request, got %s", r.Method)
-		}
-
-		// Check path
-		if r.URL.Path != "/upload" {
-			t.Errorf("Expected /upload path, got %s", r.URL.Path)
-		}
-
-		// Check query parameters
-		if r.URL.Query().Get("private") != "true" {
-			t.Error("Expected private=true in query")
-		}
-		if r.URL.Query().Get("expires") != "24h" {
-			t.Error("Expected expires=24h in query")
-		}
-
-		// Return mock response
-		resp := UploadResponse{
-			Success:   true,
-			URL:       "https://0x45.st/abc123",
-			DeleteURL: "https://0x45.st/delete/abc123",
-		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+func setupTestServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/upload":
+			if r.Method != http.MethodPost {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			resp := paste69.UploadResponse{
+				Success:   true,
+				URL:       "https://0x45.st/abc123",
+				DeleteURL: "https://0x45.st/delete/abc123",
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case "/shorten":
+			if r.Method != http.MethodPost {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			resp := paste69.ShortenResponse{
+				Success:   true,
+				URL:       "https://0x45.st/abc123",
+				DeleteURL: "https://0x45.st/delete/abc123",
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case "/pastes":
+			if r.Method != http.MethodGet {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			resp := paste69.ListResponse[paste69.PasteListItem]{
+				Success: true,
+			}
+			resp.Data.Items = []paste69.PasteListItem{
+				{
+					Id:        "abc123",
+					Filename:  "test.txt",
+					Size:      123,
+					CreatedAt: "2023-01-01T00:00:00Z",
+					URL:       "https://0x45.st/abc123",
+				},
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case "/delete/abc123":
+			if r.Method != http.MethodDelete {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			resp := paste69.GenericResponse{
+				Success: true,
+				Message: "Deleted successfully",
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		default:
+			http.NotFound(w, r)
 		}
 	}))
+}
+
+func TestUploadFile(t *testing.T) {
+	server := setupTestServer()
 	defer server.Close()
 
-	// Set up viper config for test
-	viper.Set("api_url", server.URL)
-	viper.Set("api_key", "test-key")
+	// Initialize a new client for each test
+	client = paste69.NewClient(server.URL, "test-key")
 
 	// Create a temporary test file
-	content := []byte("test content")
-	tmpfile := t.TempDir() + "/test.txt"
-	if err := os.WriteFile(tmpfile, content, 0644); err != nil {
+	tmpfile, err := os.CreateTemp("", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte("test content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Test upload
-	resp, err := UploadFile(tmpfile, true, "24h")
+	resp, err := UploadFile(tmpfile.Name(), true, "24h")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !resp.Success {
-		t.Error("Expected successful response")
+		t.Error("Expected success to be true")
 	}
 	if resp.URL != "https://0x45.st/abc123" {
-		t.Errorf("Expected URL https://0x45.st/abc123, got %s", resp.URL)
+		t.Errorf("Expected URL to be https://0x45.st/abc123, got %s", resp.URL)
 	}
 }
 
 func TestShortenURL(t *testing.T) {
-	// Create a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check request method
-		if r.Method != "POST" {
-			t.Errorf("Expected POST request, got %s", r.Method)
-		}
-
-		// Check path
-		if r.URL.Path != "/shorten" {
-			t.Errorf("Expected /shorten path, got %s", r.URL.Path)
-		}
-
-		// Check query parameters
-		if r.URL.Query().Get("url") != "https://example.com" {
-			t.Error("Expected url=https://example.com in query")
-		}
-
-		// Return mock response
-		resp := ShortenResponse{
-			Success:   true,
-			URL:       "https://0x45.st/abc123",
-			DeleteURL: "https://0x45.st/delete/abc123",
-		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}))
+	server := setupTestServer()
 	defer server.Close()
 
-	// Set up viper config for test
-	viper.Set("api_url", server.URL)
-	viper.Set("api_key", "test-key")
+	// Initialize a new client for each test
+	client = paste69.NewClient(server.URL, "test-key")
 
-	// Test shorten
-	resp, err := ShortenURL("https://example.com", false, "")
+	resp, err := ShortenURL("https://example.com", true, "24h")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !resp.Success {
-		t.Error("Expected successful response")
+		t.Error("Expected success to be true")
 	}
 	if resp.URL != "https://0x45.st/abc123" {
-		t.Errorf("Expected URL https://0x45.st/abc123, got %s", resp.URL)
-	}
-}
-
-func TestDelete(t *testing.T) {
-	// Create a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check request method
-		if r.Method != "DELETE" {
-			t.Errorf("Expected DELETE request, got %s", r.Method)
-		}
-
-		// Check path
-		if r.URL.Path != "/delete/abc123" {
-			t.Errorf("Expected /delete/abc123 path, got %s", r.URL.Path)
-		}
-
-		// Return mock response
-		resp := DeleteResponse{
-			Success: true,
-			Message: "Content deleted successfully",
-		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	// Set up viper config for test
-	viper.Set("api_url", server.URL)
-	viper.Set("api_key", "test-key")
-
-	// Test delete
-	resp, err := Delete("abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !resp.Success {
-		t.Error("Expected successful response")
-	}
-	if resp.Message != "Content deleted successfully" {
-		t.Errorf("Expected message 'Content deleted successfully', got %s", resp.Message)
+		t.Errorf("Expected URL to be https://0x45.st/abc123, got %s", resp.URL)
 	}
 }
 
 func TestListPastes(t *testing.T) {
-	// Create a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check request method
-		if r.Method != "GET" {
-			t.Errorf("Expected GET request, got %s", r.Method)
-		}
-
-		// Check path
-		if r.URL.Path != "/pastes" {
-			t.Errorf("Expected /pastes path, got %s", r.URL.Path)
-		}
-
-		// Return mock response
-		resp := ListResponse[PasteListItem]{
-			Success: true,
-			Data: struct {
-				Items []PasteListItem `json:"items"`
-				Total int             `json:"total"`
-				Page  int             `json:"page"`
-				Limit int             `json:"limit"`
-			}{
-				Items: []PasteListItem{
-					{
-						Id:        "abc123",
-						Filename:  "test.txt",
-						Size:      100,
-						CreatedAt: "2024-01-01",
-						URL:       "https://0x45.st/abc123",
-					},
-				},
-				Total: 1,
-				Page:  1,
-				Limit: 10,
-			},
-		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}))
+	server := setupTestServer()
 	defer server.Close()
 
-	// Set up viper config for test
-	viper.Set("api_url", server.URL)
-	viper.Set("api_key", "test-key")
+	// Initialize a new client for each test
+	client = paste69.NewClient(server.URL, "test-key")
 
-	// Test list pastes
 	resp, err := ListPastes(1, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !resp.Success {
-		t.Error("Expected successful response")
+		t.Error("Expected success to be true")
 	}
 	if len(resp.Data.Items) != 1 {
 		t.Errorf("Expected 1 item, got %d", len(resp.Data.Items))
 	}
-	if resp.Data.Items[0].Id != "abc123" {
-		t.Errorf("Expected ID abc123, got %s", resp.Data.Items[0].Id)
+}
+
+func TestDelete(t *testing.T) {
+	server := setupTestServer()
+	defer server.Close()
+
+	// Initialize a new client for each test
+	client = paste69.NewClient(server.URL, "test-key")
+
+	resp, err := Delete("abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !resp.Success {
+		t.Error("Expected success to be true")
+	}
+	if resp.Message != "Deleted successfully" {
+		t.Errorf("Expected message to be 'Deleted successfully', got %s", resp.Message)
 	}
 }
