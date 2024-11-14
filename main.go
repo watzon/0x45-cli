@@ -32,10 +32,6 @@ var (
 			Foreground(lipgloss.Color("#3498DB")).
 			Underline(true)
 
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#E67E22"))
-
 	// Command category colors
 	uploadCmdStyle = lipgloss.NewStyle().
 			Bold(true).

@@ -236,7 +236,6 @@ func handleUpload(cmd *cobra.Command, args []string) error {
 
 		// Try to detect file type from content
 		kind, err := filetype.Match(fileContent)
-		fmt.Printf("Kind: %s, err: %v\n", kind, err)
 		if err == nil && kind != filetype.Unknown {
 			if customFilename == "" {
 				query.Set("filename", fmt.Sprintf("upload.%s", kind.Extension))
