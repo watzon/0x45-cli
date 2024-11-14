@@ -126,6 +126,10 @@ type UrlStatsResponse struct {
 	} `json:"data"`
 }
 
+type DeleteResponse struct {
+	Success bool `json:"success"`
+}
+
 func New(baseUrl, apiKey string) *Client {
 	return &Client{
 		BaseUrl: baseUrl,
@@ -228,8 +232,12 @@ func (c *Client) ListUrls(opts ListOptions) (*ListResponse[UrlListItem], error) 
 	return &result, nil
 }
 
-func (c *Client) Delete(deleteId string) error {
-	return c.doRequest("DELETE", "/"+deleteId, nil, nil, nil)
+func (c *Client) Delete(deleteId string) (*DeleteResponse, error) {
+	var result DeleteResponse
+	if err := c.doRequest("DELETE", "/"+deleteId, nil, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *Client) RequestAPIKey(opts KeyRequestOptions) (*KeyResponse, error) {

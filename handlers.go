@@ -25,7 +25,7 @@ func handleConfigSet(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(err)
 		}
 	}
-	fmt.Printf("%s %s to %s\n",
+	cmd.Printf("%s %s to %s\n",
 		successStyle.Render("✓"),
 		titleStyle.Render(key),
 		subtitleStyle.Render(value))
@@ -35,10 +35,10 @@ func handleConfigGet(cmd *cobra.Command, args []string) {
 	key := args[0]
 	value := viper.Get(key)
 	if value == nil {
-		fmt.Printf("Config key '%s' not found\n", key)
+		cmd.Printf("Config key '%s' not found\n", key)
 		return
 	}
-	fmt.Printf("%v\n", value)
+	cmd.Printf("%v\n", value)
 }
 
 func handleConfigList(cmd *cobra.Command, args []string) {
@@ -316,21 +316,20 @@ func handleDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	deleteId := args[0]
-
 	c := New(
 		viper.GetString("api_url"),
 		viper.GetString("api_key"),
 	)
-
-	if err := c.Delete(deleteId); err != nil {
+	resp, err := c.Delete(args[0])
+	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\n%s %s\n\n",
-		successStyle.Render("✓"),
-		titleStyle.Render("Content deleted successfully!"))
-
+	if resp.Success {
+		cmd.Printf("\n%s %s\n\n",
+			successStyle.Render("✓"),
+			descriptionStyle.Render("Content deleted successfully!"))
+	}
 	return nil
 }
 
@@ -463,13 +462,18 @@ func formatPasteEntry(item PasteListItem) string {
 		size = humanize.Bytes(uint64(item.Size))
 	}
 
+	expires := "Never"
+	if item.ExpiresAt != nil {
+		expires = item.ExpiresAt.Format("2006-01-02")
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render(item.Filename),
 		urlStyle.Render(item.Url),
 		descriptionStyle.Render(fmt.Sprintf(
-			"Created: %s • Expires: %s  Size: %s • ID: %s",
+			"Created: %s • Expires: %s • Size: %s • ID: %s",
 			item.CreatedAt.Format("2006-01-02"),
-			item.ExpiresAt.Format("2006-01-02"),
+			expires,
 			size,
 			item.Id,
 		)),

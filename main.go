@@ -118,7 +118,9 @@ func initConfig() {
 	viper.SetDefault("api_url", "https://0x45.st")
 
 	// Bind flags to viper
-	viper.BindEnv("api_key", "OX45_API_KEY")
+	if err := viper.BindEnv("api_key", "OX45_API_KEY"); err != nil {
+		cobra.CheckErr(err)
+	}
 }
 
 func validateAPIKey() error {
@@ -152,7 +154,9 @@ func main() {
 		flagDescStyle.Render("config file (default is $HOME/.0x45.yaml)"))
 	rootCmd.PersistentFlags().String("api-key", "",
 		flagDescStyle.Render("API key for authentication"))
-	viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key"))
+	if err := viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key")); err != nil {
+		cobra.CheckErr(err)
+	}
 
 	// Initialize config
 	cobra.OnInitialize(initConfig)
@@ -469,8 +473,12 @@ func newKeyCommand() *cobra.Command {
 	// Add flags for request command
 	requestCmd.Flags().String("email", "", flagDescStyle.Render("Your email address"))
 	requestCmd.Flags().String("name", "", flagDescStyle.Render("Your name"))
-	requestCmd.MarkFlagRequired("email")
-	requestCmd.MarkFlagRequired("name")
+	if err := requestCmd.MarkFlagRequired("email"); err != nil {
+		cobra.CheckErr(err)
+	}
+	if err := requestCmd.MarkFlagRequired("name"); err != nil {
+		cobra.CheckErr(err)
+	}
 
 	// Add status subcommand (shows current key info)
 	statusCmd := &cobra.Command{
