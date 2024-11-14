@@ -37,7 +37,10 @@ func TestUploadFile(t *testing.T) {
 			URL:       "https://0x45.st/abc123",
 			DeleteURL: "https://0x45.st/delete/abc123",
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -90,7 +93,10 @@ func TestShortenURL(t *testing.T) {
 			URL:       "https://0x45.st/abc123",
 			DeleteURL: "https://0x45.st/delete/abc123",
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -130,7 +136,10 @@ func TestDelete(t *testing.T) {
 			Success: true,
 			Message: "Content deleted successfully",
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -188,7 +197,10 @@ func TestListPastes(t *testing.T) {
 				Limit: 10,
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer server.Close()
 
