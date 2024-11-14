@@ -1,21 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/dustin/go-humanize"
-	"github.com/watzon/0x45-cli/pkg/client"
-	"golang.org/x/term"
 )
 
 var (
@@ -43,14 +42,6 @@ var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#E67E22"))
-
-	// Table styles
-	tableHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("#E67E22"))
-
-	tableRowStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ECF0F1"))
 
 	// Command category colors
 	uploadCmdStyle = lipgloss.NewStyle().
@@ -94,7 +85,19 @@ var (
 	keyCmdStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#F1C40F")) // Gold/yellow for auth/key commands
+
+	// Add a specific style for keys in key-value pairs
+	keyStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#9B59B6")) // Purple for keys
 )
+
+// Helper function for formatting key-value pairs
+func formatKeyValue(key, value string) string {
+	return fmt.Sprintf("%s: %s",
+		keyStyle.Render(key),
+		descriptionStyle.Render(value))
+}
 
 func initConfig() {
 	if cfgFile != "" {
@@ -124,7 +127,6 @@ func initConfig() {
 
 	// Set defaults
 	viper.SetDefault("api_url", "https://0x45.st")
-	viper.SetDefault("default_expiry", "7d")
 
 	// Bind flags to viper
 	viper.BindEnv("api_key", "OX45_API_KEY")
@@ -182,38 +184,6 @@ func main() {
 	}
 }
 
-// Helper function to create a styled table
-func newStyledTable() table.Writer {
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-
-	// Get terminal width
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		width = 80 // fallback width
-	}
-
-	// Calculate column widths based on terminal size
-	t.SetAllowedRowLength(width)
-
-	// Apply custom styles to the table
-	t.SetStyle(table.Style{
-		Name: "Custom",
-		Box:  table.StyleRounded.Box,
-		Format: table.FormatOptions{
-			Header: text.FormatUpper,
-		},
-		Options: table.Options{
-			DrawBorder:      true,
-			SeparateHeader:  true,
-			SeparateRows:    false,
-			SeparateColumns: true,
-		},
-	})
-
-	return t
-}
-
 func newConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
@@ -237,11 +207,15 @@ func newConfigCommand() *cobra.Command {
 			fmt.Sprintf("  %s  %s",
 				flagNameStyle.Render("list"),
 				flagDescStyle.Render("List all configuration values")),
+			fmt.Sprintf("  %s  %s",
+				flagNameStyle.Render("unset [key]"),
+				flagDescStyle.Render("Unset a configuration value")),
 			"",
 			exampleStyle.Render("Examples:"),
 			fmt.Sprintf("  %s set api_key your-key", configCmdStyle.Render("0x45 config")),
 			fmt.Sprintf("  %s get api_key", configCmdStyle.Render("0x45 config")),
 			fmt.Sprintf("  %s list", configCmdStyle.Render("0x45 config")),
+			fmt.Sprintf("  %s unset default_expiry", configCmdStyle.Render("0x45 config")),
 		),
 	}
 
@@ -309,29 +283,56 @@ func newConfigCommand() *cobra.Command {
 			Long: lipgloss.JoinVertical(lipgloss.Left,
 				titleStyle.Render("List all configuration values"),
 				"",
-				descriptionStyle.Render("Display a table of all current configuration settings."),
-				"",
-				fmt.Sprintf("%s:", usageStyle.Render("Usage")),
-				fmt.Sprintf("  %s list", configCmdStyle.Render("0x45 config")),
+				descriptionStyle.Render("Display all current configuration settings."),
 			),
 			Run: func(cmd *cobra.Command, args []string) {
-				t := newStyledTable()
-				t.AppendHeader(table.Row{
-					headerStyle.Render("Key"),
-					headerStyle.Render("Value"),
-				})
+				fmt.Printf("\n%s\n\n", titleStyle.Render("Current Configuration"))
 
 				settings := viper.AllSettings()
+				var output []string
+
 				for key, value := range settings {
-					t.AppendRow(table.Row{
-						tableRowStyle.Render(key),
-						tableRowStyle.Render(fmt.Sprintf("%v", value)),
-					})
+					output = append(output,
+						formatKeyValue(key, fmt.Sprintf("%v", value)),
+					)
 				}
 
-				fmt.Println() // Add some spacing
-				t.Render()
+				fmt.Println(lipgloss.JoinVertical(lipgloss.Left, output...))
 				fmt.Println()
+			},
+		},
+		&cobra.Command{
+			Use:   "unset [key]",
+			Short: configCmdStyle.Render("Unset a config value"),
+			Long: lipgloss.JoinVertical(lipgloss.Left,
+				titleStyle.Render("Unset a configuration value"),
+				"",
+				descriptionStyle.Render("Remove a configuration value from your config file."),
+				"",
+				fmt.Sprintf("%s:", usageStyle.Render("Usage")),
+				fmt.Sprintf("  %s unset [key]", configCmdStyle.Render("0x45 config")),
+				"",
+				exampleStyle.Render("Examples:"),
+				fmt.Sprintf("  %s unset default_expiry", configCmdStyle.Render("0x45 config")),
+			),
+			Args: cobra.ExactArgs(1),
+			Run: func(cmd *cobra.Command, args []string) {
+				key := args[0]
+				if !viper.IsSet(key) {
+					fmt.Printf("%s Config key '%s' not found\n",
+						errorStyle.Render("✗"),
+						key)
+					return
+				}
+
+				viper.Set(key, nil)
+				if err := viper.WriteConfig(); err != nil {
+					cobra.CheckErr(err)
+				}
+
+				fmt.Printf("%s Removed config key %s\n",
+					successStyle.Render("✓"),
+					titleStyle.Render(key))
 			},
 		},
 	)
@@ -346,8 +347,7 @@ func newListCommand() *cobra.Command {
 		Long: lipgloss.JoinVertical(lipgloss.Left,
 			titleStyle.Render("List your pastes and shortened URLs"),
 			"",
-			descriptionStyle.Render("Display a table of your uploads and shortened URLs,"),
-			descriptionStyle.Render("including creation dates, expiration times, and sizes."),
+			descriptionStyle.Render("Show a record of either your uploaded pastes or shortened URLs."),
 			"",
 			fmt.Sprintf("%s:", usageStyle.Render("Usage")),
 			fmt.Sprintf("  %s <command> [flags]", listCmdStyle.Render("0x45 list")),
@@ -357,7 +357,7 @@ func newListCommand() *cobra.Command {
 				flagNameStyle.Render("pastes"),
 				flagDescStyle.Render("List your uploaded pastes")),
 			fmt.Sprintf("  %s  %s",
-				flagNameStyle.Render("links"),
+				flagNameStyle.Render("urls"),
 				flagDescStyle.Render("List your shortened URLs")),
 		),
 	}
@@ -368,37 +368,37 @@ func newListCommand() *cobra.Command {
 	var sort string
 
 	// Helper function to format a URL entry
-	formatURLEntry := func(item client.ListItem) string {
+	formatUrlEntry := func(item UrlListItem) string {
 		return lipgloss.JoinVertical(lipgloss.Left,
-			urlStyle.Render(item.ShortURL),
-			subtitleStyle.Render(fmt.Sprintf("→ %s", item.URL)),
+			urlStyle.Render(item.ShortUrl),
+			subtitleStyle.Render(fmt.Sprintf("→ %s", item.Url)),
 			descriptionStyle.Render(fmt.Sprintf(
 				"Created: %s • Expires: %s • Clicks: %d • ID: %s",
 				item.CreatedAt.Format("2006-01-02"),
 				item.ExpiresAt.Format("2006-01-02"),
 				item.Clicks,
-				item.ID,
+				item.Id,
 			)),
 			"", // Empty line for spacing
 		)
 	}
 
 	// Helper function to format a paste entry
-	formatPasteEntry := func(item client.ListItem) string {
+	formatPasteEntry := func(item PasteListItem) string {
 		size := "-"
 		if item.Size > 0 {
 			size = humanize.Bytes(uint64(item.Size))
 		}
 
 		return lipgloss.JoinVertical(lipgloss.Left,
-			urlStyle.Render(item.URL),
-			subtitleStyle.Render(item.Title),
+			titleStyle.Render(item.Filename),
+			urlStyle.Render(item.Url),
 			descriptionStyle.Render(fmt.Sprintf(
-				"Created: %s • Expires: %s • Size: %s • Delete ID: %s",
+				"Created: %s • Expires: %s  Size: %s • ID: %s",
 				item.CreatedAt.Format("2006-01-02"),
 				item.ExpiresAt.Format("2006-01-02"),
 				size,
-				item.DeleteID,
+				item.Id,
 			)),
 			"", // Empty line for spacing
 		)
@@ -406,20 +406,19 @@ func newListCommand() *cobra.Command {
 
 	// Links subcommand
 	linksCmd := &cobra.Command{
-		Use:   "links",
+		Use:   "urls",
 		Short: listCmdStyle.Render("List your shortened URLs"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateAPIKey(); err != nil {
 				return err
 			}
 
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				viper.GetString("api_key"),
 			)
 
-			resp, err := c.List(client.ListOptions{
-				Type:  "url",
+			resp, err := c.ListUrls(ListOptions{
 				Limit: limit,
 				Page:  page,
 				Sort:  sort,
@@ -438,7 +437,7 @@ func newListCommand() *cobra.Command {
 
 			// Print each URL entry
 			for _, item := range resp.Data.Items {
-				fmt.Println(formatURLEntry(item))
+				fmt.Println(formatUrlEntry(item))
 			}
 
 			// Print pagination info
@@ -464,13 +463,12 @@ func newListCommand() *cobra.Command {
 				return err
 			}
 
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				viper.GetString("api_key"),
 			)
 
-			resp, err := c.List(client.ListOptions{
-				Type:  "paste",
+			resp, err := c.ListPastes(ListOptions{
 				Limit: limit,
 				Page:  page,
 				Sort:  sort,
@@ -480,12 +478,12 @@ func newListCommand() *cobra.Command {
 			}
 
 			if len(resp.Data.Items) == 0 {
-				fmt.Println(descriptionStyle.Render("No pastes found"))
+				fmt.Println(descriptionStyle.Render("No uploaded pastes found"))
 				return nil
 			}
 
 			// Print header
-			fmt.Printf("\n%s\n\n", titleStyle.Render("Your Pastes"))
+			fmt.Printf("\n%s\n\n", titleStyle.Render("Your Uploaded Pastes"))
 
 			// Print each paste entry
 			for _, item := range resp.Data.Items {
@@ -540,6 +538,12 @@ func newUploadCommand() *cobra.Command {
 			fmt.Sprintf("  %s  %s",
 				flagNameStyle.Render("-p, --private"),
 				flagDescStyle.Render("Make the paste private")),
+			fmt.Sprintf("  %s  %s",
+				flagNameStyle.Render("-f, --filename <filename>"),
+				flagDescStyle.Render("Override the filename")),
+			fmt.Sprintf("  %s  %s",
+				flagNameStyle.Render("-x, --ext <ext>"),
+				flagDescStyle.Render("Override the file extension")),
 			"",
 			exampleStyle.Render("Examples:"),
 			fmt.Sprintf("  %s file.txt", uploadCmdStyle.Render("0x45 upload")),
@@ -550,6 +554,8 @@ func newUploadCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			expires, _ := cmd.Flags().GetString("expires")
 			private, _ := cmd.Flags().GetBool("private")
+			customFilename, _ := cmd.Flags().GetString("filename")
+			customExt, _ := cmd.Flags().GetString("ext")
 
 			// Validate private flag requires API key
 			if private {
@@ -581,34 +587,62 @@ func newUploadCommand() *cobra.Command {
 			}
 
 			// Create client
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				viper.GetString("api_key"),
 			)
 
-			var content io.Reader
-			filename := "paste.txt"
+			// Build query parameters
+			query := url.Values{}
+			if expires != "" {
+				query.Set("expires", expires)
+			}
+			if private {
+				query.Set("private", "true")
+			}
+
+			var fileContent []byte
+			var err error
 
 			if len(args) > 0 {
 				// Read from file
-				f, err := os.Open(args[0])
+				fileContent, err = os.ReadFile(args[0])
 				if err != nil {
-					return fmt.Errorf("opening file: %w", err)
+					return fmt.Errorf("reading file: %w", err)
 				}
-				defer f.Close()
-				content = f
-				filename = filepath.Base(args[0])
+
+				// Get filename and extension from the actual file if not overridden
+				if customFilename == "" {
+					query.Set("filename", filepath.Base(args[0]))
+				}
+				if customExt == "" && filepath.Ext(args[0]) != "" {
+					query.Set("ext", filepath.Ext(args[0])[1:]) // Remove the dot
+				}
 			} else {
 				// Read from stdin
-				content = os.Stdin
+				fileContent, err = io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+
+				if customFilename == "" {
+					query.Set("filename", "paste.txt")
+				}
+				if customExt == "" {
+					query.Set("ext", "txt")
+				}
 			}
 
-			// Upload content
-			resp, err := c.Upload(content, client.UploadOptions{
-				Filename: filename,
-				Expires:  expires,
-				Private:  private,
-			})
+			// Add overrides if specified
+			if customFilename != "" {
+				query.Set("filename", customFilename)
+			}
+			if customExt != "" {
+				query.Set("ext", customExt)
+			}
+
+			// Upload content with raw body
+			resp, err := c.Upload(bytes.NewReader(fileContent), query)
 			if err != nil {
 				return err
 			}
@@ -617,49 +651,32 @@ func newUploadCommand() *cobra.Command {
 				successStyle.Render("✓"),
 				titleStyle.Render("Upload successful!"))
 
-			t := newStyledTable()
-			t.AppendHeader(table.Row{
-				headerStyle.Render("Setting"),
-				headerStyle.Render("Value"),
-			})
+			// Format the response similar to list command
+			output := lipgloss.JoinVertical(lipgloss.Left,
+				titleStyle.Render(resp.Data.Filename),
+				urlStyle.Render(resp.Data.Url),
+				formatKeyValue("Created", resp.Data.CreatedAt.Format("2006-01-02")),
+			)
 
-			// Add all relevant information
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("URL"),
-				urlStyle.Render(resp.Data.URL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Raw URL"),
-				urlStyle.Render(resp.Data.RawURL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Download URL"),
-				urlStyle.Render(resp.Data.DownloadURL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Delete URL"),
-				urlStyle.Render(resp.Data.DeleteURL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Size"),
-				tableRowStyle.Render(humanize.Bytes(uint64(resp.Data.Size))),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Created"),
-				tableRowStyle.Render(resp.Data.CreatedAt.Format("2006-01-02 15:04:05")),
-			})
 			if resp.Data.ExpiresAt != nil {
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Expires"),
-					tableRowStyle.Render(resp.Data.ExpiresAt.Format("2006-01-02 15:04:05")),
-				})
+				output = lipgloss.JoinVertical(lipgloss.Left,
+					output,
+					formatKeyValue("Expires", resp.Data.ExpiresAt.Format("2006-01-02")),
+				)
 			}
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Private"),
-				tableRowStyle.Render(fmt.Sprintf("%v", resp.Data.Private)),
-			})
 
-			t.Render()
+			output = lipgloss.JoinVertical(lipgloss.Left,
+				output,
+				formatKeyValue("Size", humanize.Bytes(uint64(resp.Data.Size))),
+				formatKeyValue("ID", resp.Data.Id),
+				"",
+				subtitleStyle.Render("Additional URLs:"),
+				formatKeyValue("Raw", urlStyle.Render(resp.Data.RawUrl)),
+				formatKeyValue("Download", urlStyle.Render(resp.Data.DownloadUrl)),
+				formatKeyValue("Delete", urlStyle.Render(resp.Data.DeleteUrl)),
+			)
+
+			fmt.Println(output)
 			fmt.Println()
 
 			return nil
@@ -670,6 +687,10 @@ func newUploadCommand() *cobra.Command {
 		flagDescStyle.Render("Expiration time (e.g., 24h, 7d)"))
 	cmd.Flags().BoolP("private", "p", false,
 		flagDescStyle.Render("Make the paste private"))
+	cmd.Flags().StringP("filename", "f", "",
+		flagDescStyle.Render("Override the filename"))
+	cmd.Flags().StringP("ext", "x", "",
+		flagDescStyle.Render("Override the file extension"))
 	return cmd
 }
 
@@ -710,14 +731,14 @@ func newShortenCommand() *cobra.Command {
 			title, _ := cmd.Flags().GetString("title")
 
 			// Create client
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				viper.GetString("api_key"),
 			)
 
 			// Shorten URL
-			resp, err := c.Shorten(client.ShortenOptions{
-				URL:     url,
+			resp, err := c.Shorten(ShortenOptions{
+				Url:     url,
 				Expires: expires,
 				Title:   title,
 			})
@@ -725,58 +746,29 @@ func newShortenCommand() *cobra.Command {
 				return err
 			}
 
-			// Print result with styled output
 			fmt.Printf("\n%s %s\n\n",
 				successStyle.Render("✓"),
 				titleStyle.Render("URL shortened successfully!"))
 
-			t := newStyledTable()
-			t.AppendHeader(table.Row{
-				headerStyle.Render("Setting"),
-				headerStyle.Render("Value"),
-			})
+			output := lipgloss.JoinVertical(lipgloss.Left,
+				urlStyle.Render(resp.Data.ShortUrl),
+				subtitleStyle.Render(fmt.Sprintf("→ %s", resp.Data.Url)),
+				formatKeyValue("Created", resp.Data.CreatedAt.Format("2006-01-02")),
+				formatKeyValue("Clicks", strconv.Itoa(resp.Data.Clicks)),
+				formatKeyValue("ID", resp.Data.Id),
+				"",
+				formatKeyValue("Delete", urlStyle.Render(resp.Data.DeleteUrl)),
+			)
 
-			// Add all relevant information
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Short URL"),
-				urlStyle.Render(resp.Data.ShortURL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Original URL"),
-				tableRowStyle.Render(resp.Data.URL),
-			})
-			if resp.Data.Title != "" {
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Title"),
-					tableRowStyle.Render(resp.Data.Title),
-				})
-			}
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Delete URL"),
-				urlStyle.Render(resp.Data.DeleteURL),
-			})
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Created"),
-				tableRowStyle.Render(resp.Data.CreatedAt.Format("2006-01-02 15:04:05")),
-			})
 			if resp.Data.ExpiresAt != nil {
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Expires"),
-					tableRowStyle.Render(resp.Data.ExpiresAt.Format("2006-01-02 15:04:05")),
-				})
-			}
-			t.AppendRow(table.Row{
-				tableRowStyle.Render("Clicks"),
-				tableRowStyle.Render(fmt.Sprintf("%d", resp.Data.Clicks)),
-			})
-			if resp.Data.LastClick != nil {
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Last Click"),
-					tableRowStyle.Render(resp.Data.LastClick.Format("2006-01-02 15:04:05")),
-				})
+				output = lipgloss.JoinVertical(lipgloss.Left,
+					output,
+					"",
+					formatKeyValue("Expires", resp.Data.ExpiresAt.Format("2006-01-02")),
+				)
 			}
 
-			t.Render()
+			fmt.Println(output)
 			fmt.Println()
 
 			return nil
@@ -813,16 +805,16 @@ func newDeleteCommand() *cobra.Command {
 				return err
 			}
 
-			deleteID := args[0]
+			deleteId := args[0]
 
 			// Create client
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				viper.GetString("api_key"),
 			)
 
 			// Delete content
-			if err := c.Delete(deleteID); err != nil {
+			if err := c.Delete(deleteId); err != nil {
 				return err
 			}
 
@@ -870,13 +862,13 @@ func newKeyCommand() *cobra.Command {
 			}
 
 			// Create client
-			c := client.New(
+			c := New(
 				viper.GetString("api_url"),
 				"", // No API key needed for this request
 			)
 
 			// Request key
-			resp, err := c.RequestAPIKey(client.KeyRequestOptions{
+			resp, err := c.RequestAPIKey(KeyRequestOptions{
 				Email: email,
 				Name:  name,
 			})
@@ -903,43 +895,32 @@ func newKeyCommand() *cobra.Command {
 		Use:   "status",
 		Short: keyCmdStyle.Render("Show API key status"),
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println() // Add spacing
+			fmt.Println()
 
 			if apiKey := viper.GetString("api_key"); apiKey != "" {
-				fmt.Printf("%s %s\n",
-					successStyle.Render("✓"),
-					titleStyle.Render("You have an API key configured!"))
-
-				t := newStyledTable()
-				t.AppendHeader(table.Row{
-					headerStyle.Render("Setting"),
-					headerStyle.Render("Value"),
-				})
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("API Key"),
-					tableRowStyle.Render(apiKey),
-				})
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Max Expiry"),
-					tableRowStyle.Render("730 days (2 years)"),
-				})
-				t.AppendRow(table.Row{
-					tableRowStyle.Render("Private Pastes"),
-					tableRowStyle.Render("Enabled"),
-				})
-
-				fmt.Println()
-				t.Render()
-				fmt.Println()
+				output := lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("%s %s",
+						successStyle.Render("✓"),
+						titleStyle.Render("API Key Configuration")),
+					"",
+					formatKeyValue("API Key", apiKey),
+					formatKeyValue("Max Expiry", "730 days (2 years)"),
+					formatKeyValue("Private Pastes", "Enabled"),
+				)
+				fmt.Println(output)
 			} else {
-				fmt.Printf("%s %s\n\n",
-					errorStyle.Render("✗"),
-					titleStyle.Render("No API key configured"))
-
-				fmt.Printf("Run %s to request a key\n",
-					keyCmdStyle.Render("0x45 key request --email you@example.com --name \"Your Name\""))
-				fmt.Println()
+				output := lipgloss.JoinVertical(lipgloss.Left,
+					fmt.Sprintf("%s %s",
+						errorStyle.Render("✗"),
+						titleStyle.Render("No API key configured")),
+					"",
+					descriptionStyle.Render(fmt.Sprintf(
+						"Run %s to request a key",
+						keyCmdStyle.Render("0x45 key request --email you@example.com --name \"Your Name\""))),
+				)
+				fmt.Println(output)
 			}
+			fmt.Println()
 		},
 	}
 
